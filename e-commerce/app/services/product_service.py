@@ -1,4 +1,5 @@
 from sqlalchemy.future import select
+from sqlalchemy import or_, func, and_
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -200,7 +201,6 @@ class ProductService:
     
     # 使用 ILIKE 进行不区分大小写的模糊搜索（PostgreSQL）
     # 搜索商品名称和描述
-    from sqlalchemy import or_, and_
     query = select(Product).where(
       and_(
         Product.is_active == True,

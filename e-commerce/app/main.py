@@ -79,5 +79,4 @@ try:
     app.include_router(knowledge_base.router)
 except ImportError:
     pass  # 知识库功能不可用时静默跳过
-
 # app.add_middleware(AdvancedMiddleware)  # 速率限制已禁用

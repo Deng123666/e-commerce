@@ -101,3 +101,21 @@ async def delete_product(
     return JSONResponse(content={"message": str(exc)}, status_code=exc.status_code)
   except Exception as e:
     return JSONResponse(content={"message": str(e)}, status_code=status.HTTP_400_BAD_REQUEST)
+
+@router.get("/search")
+async def search_products(
+        q: str = Query(..., description="搜索关键词"),
+        page: int = Query(1, ge=1, description="页码"),
+        size: int = Query(10, ge=1, le=100, description="每页数量"),
+        db: AsyncSession = Depends(get_db)):
+  """
+  全文搜索商品
+  支持搜索商品名称和描述
+  """
+  try:
+    result = await ProductService.search_products(db, q, page, size)
+    return result
+  except HTTPException as exc:
+    return JSONResponse(content={"message": str(exc)}, status_code=exc.status_code)
+  except Exception as e:
+    return JSONResponse(content={"message": str(e)}, status_code=status.HTTP_400_BAD_REQUEST)

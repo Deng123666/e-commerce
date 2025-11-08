@@ -9,7 +9,7 @@ class ProductBase(BaseModel):
   description: Optional[str] = Field(None, max_length=500)
   price: float = Field(..., gt=0)
   stock: int = Field(..., ge=0)
-  category_id: Optional[int] = Field(None, description="分类ID")
+  category_id: int = Field(..., description="分类ID")  # 使用分类ID而不是枚举
   image_url: Optional[str] = Field(None)
   
   model_config = ConfigDict(from_attributes=True)
@@ -17,7 +17,7 @@ class ProductBase(BaseModel):
   @field_validator('name', mode='before')
   @classmethod
   def validate_non_empty(cls, value: str, info) -> str:
-    if not isinstance(value,str):
+    if not isinstance(value, str):
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"'{info.field_name}' must be string")
     if not value.strip():
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"'{info.field_name}' can't be empty.")
@@ -105,7 +105,7 @@ class ProductUpdate(BaseModel):
 class ProductFilter(BaseModel):
   page: int = 1
   size: int = 10
-  category: Optional[str] = None
+  category_id: Optional[int] = None  # 使用分类ID
   min_price: Optional[float] = None
   max_price: Optional[float] = None
   availability: Optional[bool] = None
@@ -117,15 +117,5 @@ class ProductFilter(BaseModel):
       raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=f"The field '{info.field_name}' can't be negative."
-        )
-    return value
-  
-  @field_validator('category', mode="before")
-  @classmethod
-  def validate_category(cls, value: Optional[str], info) -> Optional[str]:
-    if value is not None and not str(value).strip():
-      raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=f"The field '{info.field_name}' can't be empty."
         )
     return value

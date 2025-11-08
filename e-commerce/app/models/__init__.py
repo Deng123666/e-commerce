@@ -7,6 +7,7 @@ from app.models.payment import Payment
 from app.models.wishlist import Wishlist
 from app.models.cart_item import CartItem
 from app.models.order_item import OrderItem
+from app.models.category import Category
 
 
 __all__ = [
@@ -18,5 +19,6 @@ __all__ = [
     'Review',
     'Payment',
     'Wishlist',
+    'Category',
     'Base'
 ]

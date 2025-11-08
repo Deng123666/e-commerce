@@ -76,7 +76,7 @@ class WishlistFilter(BaseModel):
   size: int = 10
   min_price: Optional[float] = None
   max_price: Optional[float] = None
-  category: Optional[str] = None
+  category_id: Optional[int] = None  # 使用分类ID
   availability: Optional[bool] = True
   user_id: Optional[int] = None
   product_id: Optional[int] = None
