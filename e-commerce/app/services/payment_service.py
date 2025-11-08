@@ -110,12 +110,17 @@ class PaymentServiceMock:
     await db.refresh(payment)
     await db.refresh(order)
 
-    # 发送支付成功邮件（可选）
+    # 使用Celery异步发送支付成功邮件（可选）
     if user:
       try:
-        await EmailService.payment_confirmation_message(user.email)
-      except:
-        pass  # 邮件发送失败不影响支付流程
+        from app.tasks.email_tasks import send_payment_confirmation_email
+        send_payment_confirmation_email.delay(user.email)
+      except Exception:
+        # 如果Celery不可用，同步发送（降级处理）
+        try:
+          await EmailService.payment_confirmation_message(user.email)
+        except:
+          pass  # 邮件发送失败不影响支付流程
 
     return payment
   

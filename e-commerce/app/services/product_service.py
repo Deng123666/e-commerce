@@ -13,11 +13,56 @@ from app.schemas.product import ProductCreate, ProductUpdate, ProductFilter, Pro
 class ProductService:
   @staticmethod
   async def get_all_products(db: AsyncSession, filters: ProductFilter):
+    # 构建缓存键（基于过滤条件）
+    cache_key_parts = [
+      f"page:{filters.page}",
+      f"size:{filters.size}",
+    ]
+    if filters.category_id:
+      cache_key_parts.append(f"category:{filters.category_id}")
+    if filters.min_price:
+      cache_key_parts.append(f"min_price:{filters.min_price}")
+    if filters.max_price:
+      cache_key_parts.append(f"max_price:{filters.max_price}")
+    if filters.availability is not None:
+      cache_key_parts.append(f"availability:{filters.availability}")
+    
+    cache_key = f"products:list:{':'.join(cache_key_parts)}"
+    cache_ttl = 180  # 缓存3分钟
+    
+    # 尝试从Redis缓存获取结果
+    try:
+      cached_result = await redis_connection.get(cache_key)
+      if cached_result:
+        import json
+        return json.loads(cached_result)
+    except Exception:
+      pass
+    
     query = await apply_filters(db, filters)
     products = await apply_pagination(query, filters, db)
     if not products:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
-    # print(products)
+    
+    # 将结果存入Redis缓存
+    try:
+      import json
+      # 转换items为可序列化的格式
+      cache_data = {
+        "items": [ProductResponse.model_validate(p).model_dump() for p in products["items"]],
+        "total": products["total"],
+        "page": products["page"],
+        "size": products["size"],
+        "pages": products["pages"]
+      }
+      await redis_connection.setex(
+        cache_key,
+        cache_ttl,
+        json.dumps(cache_data, default=str)
+      )
+    except Exception:
+      pass
+    
     return products
 
   @staticmethod
@@ -123,3 +168,83 @@ class ProductService:
     await db.commit()
 
     return {"detail": "Product deleted successfully."}
+
+  @staticmethod
+  async def search_products(db: AsyncSession, search_query: str, page: int = 1, size: int = 10):
+    """
+    全文搜索商品（带Redis缓存）
+    支持搜索商品名称和描述
+    """
+    if not search_query or not search_query.strip():
+      raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Search query cannot be empty"
+      )
+    
+    search_query = search_query.strip()
+    search_term = f"%{search_query}%"
+    
+    # 构建缓存键（包含搜索关键词和分页信息）
+    cache_key = f"search:products:{search_query.lower()}:page:{page}:size:{size}"
+    cache_ttl = 300  # 缓存5分钟
+    
+    # 尝试从Redis缓存获取结果
+    try:
+      cached_result = await redis_connection.get(cache_key)
+      if cached_result:
+        import json
+        return json.loads(cached_result)
+    except Exception:
+      # 缓存获取失败，继续执行数据库查询
+      pass
+    
+    # 使用 ILIKE 进行不区分大小写的模糊搜索（PostgreSQL）
+    # 搜索商品名称和描述
+    from sqlalchemy import or_, and_
+    query = select(Product).where(
+      and_(
+        Product.is_active == True,
+        or_(
+          Product.name.ilike(search_term),
+          Product.description.ilike(search_term)
+        )
+      )
+    ).order_by(Product.created_at.desc())
+    
+    # 执行查询
+    result = await db.execute(query)
+    all_products = result.scalars().all()
+    
+    # 手动分页
+    total = len(all_products)
+    start = (page - 1) * size
+    end = start + size
+    products = all_products[start:end]
+    
+    if not products:
+      raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="No products found matching your search"
+      )
+    
+    response_data = {
+      "products": [ProductResponse.model_validate(p).model_dump() for p in products],
+      "total": total,
+      "page": page,
+      "size": size,
+      "pages": (total + size - 1) // size
+    }
+    
+    # 将结果存入Redis缓存
+    try:
+      import json
+      await redis_connection.setex(
+        cache_key,
+        cache_ttl,
+        json.dumps(response_data, default=str)  # default=str处理datetime等类型
+      )
+    except Exception:
+      # 缓存存储失败，不影响返回结果
+      pass
+    
+    return response_data

@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from fastapi import FastAPI, status
 from fastapi.responses import RedirectResponse
@@ -7,6 +8,7 @@ from fastapi.responses import RedirectResponse
 from app.models.base import Base
 from app.database.session import engine, initialize_db
 from app.routers.wishlists import router as wishlists_router
+from app.routers import categories
 # from app.middleware.rate_limitter import AdvancedMiddleware  # 速率限制已禁用
 from app.routers import (auth, users, products, orders, password_recovery,
                          admin, payments, order_item, reviews, cart_items)
@@ -50,4 +52,21 @@ app.include_router(order_item.router)
 app.include_router(payments.router)
 app.include_router(reviews.router)
 app.include_router(wishlists_router)
+app.include_router(categories.router)
+
+# 导入上传路由
+from app.routers import uploads
+app.include_router(uploads.router)
+
+# 导入Agent路由
+from app.routers import agent
+app.include_router(agent.router)
+
+# 导入知识库管理路由
+from app.routers import knowledge_base
+app.include_router(knowledge_base.router)
+
+# 静态文件服务（用于访问上传的文件）
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 # app.add_middleware(AdvancedMiddleware)  # 速率限制已禁用
