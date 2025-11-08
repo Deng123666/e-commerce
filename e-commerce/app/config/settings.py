@@ -27,8 +27,10 @@ class Settings(BaseSettings):
   DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
   DEEPSEEK_API_BASE: str = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
 
-  # model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
-  class Config:
-    env_file = ".env"
+  model_config = ConfigDict(
+    env_file=".env", 
+    env_file_encoding="utf-8",
+    extra='ignore'  # 忽略额外的环境变量
+  )
 
 settings = Settings()
