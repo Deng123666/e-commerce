@@ -30,11 +30,29 @@ order_item_responses = {
     }
   },
   status.HTTP_200_OK: {
-    "description": "Success",
+    "description": "Success - Order created with order items",
     "content": {
       "application/json": {
         "example": {
-          "message": "Order was successfully created"
+          "order_id": 123,
+          "total_amount": 299.99,
+          "order_status": "pending",
+          "order_items": [
+            {
+              "id": 1,
+              "order_id": 123,
+              "product_id": 10,
+              "quantity": 2,
+              "price": 149.99
+            },
+            {
+              "id": 2,
+              "order_id": 123,
+              "product_id": 15,
+              "quantity": 1,
+              "price": 149.99
+            }
+          ]
         }
       }
     }

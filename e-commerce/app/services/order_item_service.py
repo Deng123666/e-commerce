@@ -114,7 +114,22 @@ class OrderItemService:
         # 如果Celery不可用，同步发送（降级处理）
         await EmailService.order_placement_message(current_user.email)
       
-      return order_items
+      # 返回订单ID和订单项列表，方便前端使用
+      return {
+        "order_id": order.id,
+        "total_amount": order.total_amount,
+        "order_status": order.order_status.value,
+        "order_items": [
+          {
+            "id": item.id,
+            "order_id": item.order_id,
+            "product_id": item.product_id,
+            "quantity": item.quantity,
+            "price": item.price
+          }
+          for item in order_items
+        ]
+      }
     finally:
       await lock.release()
 
