@@ -1,4 +1,5 @@
 from sqlalchemy.future import select
+from sqlalchemy import or_, func, and_
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -123,3 +124,53 @@ class ProductService:
     await db.commit()
 
     return {"detail": "Product deleted successfully."}
+
+  @staticmethod
+  async def search_products(db: AsyncSession, search_query: str, page: int = 1, size: int = 10):
+    """
+    全文搜索商品
+    支持搜索商品名称和描述
+    """
+    if not search_query or not search_query.strip():
+      raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Search query cannot be empty"
+      )
+    
+    search_term = f"%{search_query.strip()}%"
+    
+    # 使用 ILIKE 进行不区分大小写的模糊搜索（PostgreSQL）
+    # 搜索商品名称和描述
+    query = select(Product).where(
+      and_(
+        Product.is_active == True,
+        or_(
+          Product.name.ilike(search_term),
+          Product.description.ilike(search_term)
+        )
+      )
+    ).order_by(Product.created_at.desc())
+    
+    # 执行查询
+    result = await db.execute(query)
+    all_products = result.scalars().all()
+    
+    # 手动分页
+    total = len(all_products)
+    start = (page - 1) * size
+    end = start + size
+    products = all_products[start:end]
+    
+    if not products:
+      raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="No products found matching your search"
+      )
+    
+    return {
+      "products": [ProductResponse.model_validate(p) for p in products],
+      "total": total,
+      "page": page,
+      "size": size,
+      "pages": (total + size - 1) // size
+    }

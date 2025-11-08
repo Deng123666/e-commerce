@@ -5,27 +5,21 @@ from typing import Optional
 from fastapi import HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-class CategoryEnum(str, Enum):
-  electronics = "electronics"
-  fashion = "fashion"
-  home = "home"
-  books = "books"
-  
 class ProductBase(BaseModel):
   name: str = Field(..., max_length=100)
   description: Optional[str] = Field(None, max_length=500)
   price: float = Field(..., gt=0)
   stock: int = Field(..., ge=0)
-  category: CategoryEnum = Field(None) 
+  category_id: int = Field(..., description="分类ID")  # 使用分类ID而不是枚举
   image_url: Optional[str] = Field(None)
   
   model_config = ConfigDict(from_attributes=True, 
                             use_enum_values=True)
     
-  @field_validator('name', 'category', mode='before')
+  @field_validator('name', mode='before')
   @classmethod
   def validate_non_empty(cls, value: str, info) -> str:
-    if not isinstance(value,str):
+    if not isinstance(value, str):
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"'{info.field_name}' must be string")
     if not value.strip():
       raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"'{info.field_name}' can't be empty.")
@@ -69,10 +63,10 @@ class ProductUpdate(BaseModel):
   description: Optional[str] = Field(None, max_length=500)
   price: Optional[float] = Field(None, gt=0)
   stock: Optional[int] = Field(None, ge=0)
-  category: Optional[str] = Field(None, max_length=100)
+  category_id: Optional[int] = Field(None, description="分类ID")
   image_url: Optional[str] = Field(None, json_schema_extra={"description" : "URL of the product's image"})
 
-  @field_validator('name', 'description', 'category', 'image_url', mode="before")
+  @field_validator('name', 'description', 'image_url', mode="before")
   @classmethod
   def validate_optional_fields(cls, value: Optional[str], info) -> Optional[str]:
         if value is not None and not str(value).strip():
@@ -99,7 +93,7 @@ class ProductUpdate(BaseModel):
 class ProductFilter(BaseModel):
   page: int = 1
   size: int = 10
-  category: Optional[str] = None
+  category_id: Optional[int] = None  # 使用分类ID
   min_price: Optional[float] = None
   max_price: Optional[float] = None
   availability: Optional[bool] = None
@@ -111,15 +105,5 @@ class ProductFilter(BaseModel):
       raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail=f"The field '{info.field_name}' can't be negative."
-        )
-    return value
-  
-  @field_validator('category', mode="before")
-  @classmethod
-  def validate_category(cls, value: Optional[str], info) -> Optional[str]:
-    if value is not None and not str(value).strip():
-      raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=f"The field '{info.field_name}' can't be empty."
         )
     return value

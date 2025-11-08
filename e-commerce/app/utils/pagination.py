@@ -4,9 +4,10 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.wishlist import Wishlist
+from app.models.category import Category
 from app.schemas.product import ProductFilter
 from app.schemas.wishlist import WishlistFilter
-from app.models.product import Product, CategoryEnum
+from app.models.product import Product
 
 async def apply_filters(db: AsyncSession, filters: ProductFilter):
     # Validate price range
@@ -17,14 +18,17 @@ async def apply_filters(db: AsyncSession, filters: ProductFilter):
                 detail="min_price cannot be greater than max_price."
             )
 
-    # Validate category
-    valid_categories = set(CategoryEnum.__members__)
-    if filters.category and filters.category not in valid_categories:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid category: {filters.category}. "
-                   f"Valid categories are: {', '.join(valid_categories)}."
+    # Validate category_id if provided
+    if filters.category_id is not None:
+        category_query = await db.execute(
+            select(Category).where(Category.id == filters.category_id)
         )
+        category = category_query.scalars().first()
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category with id {filters.category_id} not found."
+            )
 
     # Build dynamic conditions
     conditions = []
@@ -33,8 +37,8 @@ async def apply_filters(db: AsyncSession, filters: ProductFilter):
     if filters.availability is not None:
         conditions.append(Product.is_active == filters.availability)
 
-    if filters.category is not None:
-        conditions.append(Product.category == filters.category)
+    if filters.category_id is not None:
+        conditions.append(Product.category_id == filters.category_id)
 
     if filters.min_price is not None:
         conditions.append(Product.price >= filters.min_price)
@@ -88,8 +92,8 @@ async def apply_wishlist_filters(filters: WishlistFilter, current_user):
   if filters.availability:
     conditions.append(Product.is_active == filters.availability)
 
-  if filters.category:
-    conditions.append(Product.category == filters.category)
+  if filters.category_id:
+    conditions.append(Product.category_id == filters.category_id)
 
   if filters.min_price:
     conditions.append(Product.price >= filters.min_price)
