@@ -3,13 +3,14 @@ from datetime import datetime
 from sqlalchemy import func, and_
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from fastapi import HTTPException, status, Depends
 
 from app.schemas.user import Role
 from app.models.product import Product
 from app.models.order import OrderStatus
 from app.models.cart_item import CartItem
-from app.schemas.order import OrderResponse
+from app.schemas.order import OrderResponse, OrderItemResponse
 from app.utils.token import get_current_user
 from app.models import Order, User, OrderItem
 
@@ -36,7 +37,12 @@ class OrderService:
           db: AsyncSession,
           current_user: User = Depends(get_current_user)):
 
-    query = await db.execute(select(Order).filter(Order.id == order_id))
+    # 使用 selectinload 预加载订单项
+    query = await db.execute(
+      select(Order)
+      .options(selectinload(Order.order_items))
+      .filter(Order.id == order_id)
+    )
     order = query.scalars().first()
 
     if not order:
@@ -44,24 +50,74 @@ class OrderService:
 
     # 允许订单所有者、管理员查看
     if order.user_id == current_user.id or current_user.role == Role.admin:
-      return OrderResponse.model_validate(order)
+      # 构建订单项响应列表
+      order_items_response = [
+        OrderItemResponse(
+          id=item.id,
+          order_id=item.order_id,
+          product_id=item.product_id,
+          quantity=item.quantity,
+          price=item.price
+        )
+        for item in order.order_items
+      ] if order.order_items else None
+      
+      # 构建订单响应
+      order_response = OrderResponse(
+        id=order.id,
+        total_amount=order.total_amount,
+        order_status=order.order_status,
+        tracking_number=order.tracking_number,
+        created_at=order.created_at,
+        updated_at=order.updated_at,
+        order_items=order_items_response
+      )
+      return order_response
     
     # 如果是商家，检查订单是否包含该商家的商品
     if current_user.role == Role.vendor:
+      # 查询该订单中属于该商家的商品ID列表
+      vendor_products_query = await db.execute(
+        select(Product.id)
+        .where(Product.vendor_id == current_user.id)
+      )
+      vendor_product_ids = {row[0] for row in vendor_products_query.all()}
+      
+      # 查询订单中是否有该商家的商品
       order_items_query = await db.execute(
         select(OrderItem)
-        .join(Product, OrderItem.product_id == Product.id)
         .where(
           and_(
             OrderItem.order_id == order_id,
-            Product.vendor_id == current_user.id
+            OrderItem.product_id.in_(vendor_product_ids)
           )
         )
       )
-      vendor_order_items = order_items_query.scalars().first()
+      vendor_order_items = order_items_query.scalars().all()
       
       if vendor_order_items:
-        return OrderResponse.model_validate(order)
+        # 只返回该商家的订单项
+        vendor_items = [
+          OrderItemResponse(
+            id=item.id,
+            order_id=item.order_id,
+            product_id=item.product_id,
+            quantity=item.quantity,
+            price=item.price
+          )
+          for item in vendor_order_items
+        ]
+        
+        order_response = OrderResponse(
+          id=order.id,
+          total_amount=order.total_amount,
+          order_status=order.order_status,
+          tracking_number=order.tracking_number,
+          created_at=order.created_at,
+          updated_at=order.updated_at,
+          order_items=vendor_items
+        )
+        return order_response
       else:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
     
@@ -215,41 +271,97 @@ class OrderService:
 
     if current_user.role == Role.admin:
       # 管理员可以查看所有订单
-      query = await db.execute(select(Order))
-      order = query.scalars().all()
+      query = await db.execute(
+        select(Order)
+        .options(selectinload(Order.order_items))
+      )
+      orders = query.scalars().all()
     elif current_user.role == Role.vendor:
       # 商家可以查看包含他们商品的所有订单
       query = await db.execute(
         select(Order)
+        .options(selectinload(Order.order_items))
         .join(OrderItem, OrderItem.order_id == Order.id)
         .join(Product, OrderItem.product_id == Product.id)
         .where(Product.vendor_id == current_user.id)
         .distinct()
       )
-      order = query.scalars().all()
+      orders = query.scalars().all()
     else:
       # 普通用户只能查看自己的订单
-      query = await db.execute(select(Order).filter(Order.user_id == current_user.id)
-                               .where(Order.order_status != OrderStatus.canceled))
-      order = query.scalars().all()
+      query = await db.execute(
+        select(Order)
+        .options(selectinload(Order.order_items))
+        .filter(Order.user_id == current_user.id)
+        .where(Order.order_status != OrderStatus.canceled)
+      )
+      orders = query.scalars().all()
 
-    if not order:
+    if not orders:
       raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
 
-    return order
+    # 构建订单响应列表
+    result = []
+    for order in orders:
+      if current_user.role == Role.vendor:
+        # 商家只看到自己的订单项
+        vendor_product_ids_query = await db.execute(
+          select(Product.id).where(Product.vendor_id == current_user.id)
+        )
+        vendor_product_ids = {row[0] for row in vendor_product_ids_query.all()}
+        
+        order_items = [
+          OrderItemResponse(
+            id=item.id,
+            order_id=item.order_id,
+            product_id=item.product_id,
+            quantity=item.quantity,
+            price=item.price
+          )
+          for item in order.order_items
+          if item.product_id in vendor_product_ids
+        ] if order.order_items else None
+      else:
+        # 用户和管理员看到所有订单项
+        order_items = [
+          OrderItemResponse(
+            id=item.id,
+            order_id=item.order_id,
+            product_id=item.product_id,
+            quantity=item.quantity,
+            price=item.price
+          )
+          for item in order.order_items
+        ] if order.order_items else None
+      
+      order_response = OrderResponse(
+        id=order.id,
+        total_amount=order.total_amount,
+        order_status=order.order_status,
+        tracking_number=order.tracking_number,
+        created_at=order.created_at,
+        updated_at=order.updated_at,
+        order_items=order_items
+      )
+      result.append(order_response)
+
+    return result
 
   @staticmethod
   async def get_order_by_status(order_status, current_user, db):
     if current_user.role == Role.admin:
       # 管理员可以查看所有状态的订单
       query = await db.execute(
-        select(Order).filter(Order.order_status == order_status)
+        select(Order)
+        .options(selectinload(Order.order_items))
+        .filter(Order.order_status == order_status)
       )
-      return query.scalars().all()
+      orders = query.scalars().all()
     elif current_user.role == Role.vendor:
       # 商家可以查看包含他们商品的指定状态订单
       query = await db.execute(
         select(Order)
+        .options(selectinload(Order.order_items))
         .join(OrderItem, OrderItem.order_id == Order.id)
         .join(Product, OrderItem.product_id == Product.id)
         .where(
@@ -260,15 +372,64 @@ class OrderService:
         )
         .distinct()
       )
-      return query.scalars().all()
+      orders = query.scalars().all()
     else:
       # 普通用户只能查看自己指定状态的订单
       query = await db.execute(
-        select(Order).filter(
+        select(Order)
+        .options(selectinload(Order.order_items))
+        .filter(
           and_(
             Order.order_status == order_status,
             Order.user_id == current_user.id
           )
         )
       )
-      return query.scalars().all()
+      orders = query.scalars().all()
+    
+    # 构建订单响应列表
+    result = []
+    for order in orders:
+      if current_user.role == Role.vendor:
+        # 商家只看到自己的订单项
+        vendor_product_ids_query = await db.execute(
+          select(Product.id).where(Product.vendor_id == current_user.id)
+        )
+        vendor_product_ids = {row[0] for row in vendor_product_ids_query.all()}
+        
+        order_items = [
+          OrderItemResponse(
+            id=item.id,
+            order_id=item.order_id,
+            product_id=item.product_id,
+            quantity=item.quantity,
+            price=item.price
+          )
+          for item in order.order_items
+          if item.product_id in vendor_product_ids
+        ] if order.order_items else None
+      else:
+        # 用户和管理员看到所有订单项
+        order_items = [
+          OrderItemResponse(
+            id=item.id,
+            order_id=item.order_id,
+            product_id=item.product_id,
+            quantity=item.quantity,
+            price=item.price
+          )
+          for item in order.order_items
+        ] if order.order_items else None
+      
+      order_response = OrderResponse(
+        id=order.id,
+        total_amount=order.total_amount,
+        order_status=order.order_status,
+        tracking_number=order.tracking_number,
+        created_at=order.created_at,
+        updated_at=order.updated_at,
+        order_items=order_items
+      )
+      result.append(order_response)
+    
+    return result

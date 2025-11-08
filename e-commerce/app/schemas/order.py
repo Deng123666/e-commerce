@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -36,11 +36,22 @@ class OrderCreate(OrderBase):
 class OrderUpdate(OrderBase):
   pass
 
+class OrderItemResponse(BaseModel):
+  """订单项响应模型"""
+  id: int
+  order_id: int
+  product_id: int
+  quantity: int
+  price: float
+  
+  model_config = ConfigDict(from_attributes=True)
+
 class OrderResponse(OrderBase):
   created_at: datetime
   updated_at: Optional[datetime] = None
   id: int
   tracking_number: Optional[str] = None  # 快递单号
+  order_items: Optional[List[OrderItemResponse]] = None  # 订单项列表（包含商品信息）
 
 class ShipOrderRequest(BaseModel):
   """商家发货时需要提供的快递单号"""

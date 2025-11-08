@@ -203,6 +203,19 @@ class ReviewService:
     if review_dict.user_id != user.id:
       raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You have no permission to perform this action")
 
+    # 如果是主评论（parent_review_id 为 NULL），需要先删除所有追评
+    if review_dict.parent_review_id is None:
+      # 查询该主评论的所有追评
+      follow_up_query = await db.execute(
+        select(Review).where(Review.parent_review_id == review_id)
+      )
+      follow_up_reviews = follow_up_query.scalars().all()
+      
+      # 删除所有追评
+      for follow_up_review in follow_up_reviews:
+        await db.delete(follow_up_review)
+    
+    # 删除主评论（或单独的追评）
     await db.delete(review_dict)
     await db.commit()
   
